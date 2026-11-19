@@ -171,9 +171,54 @@
   .voltar { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--muted); text-decoration: none; font-weight: 600; }
   .voltar:hover { color: var(--text); }
   .aviso-copia { font-size: 13px; color: var(--muted); margin-left: 8px; }
+
+  /* Usuário no topo */
+  .usuario { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #B9CCE0; }
+  .usuario span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn-sair {
+    border: 1px solid #2B4D70; background: transparent; color: #fff; border-radius: 999px;
+    padding: 6px 12px; cursor: pointer; font-weight: 600; font-size: 13px;
+  }
+  .btn-sair:hover { background: #0E3860; }
+  @media (max-width: 600px) { .usuario span { display: none; } }
+
+  /* Login */
+  .login {
+    min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+    background: radial-gradient(circle at 85% 10%, #134673 0%, var(--navy) 55%);
+    color: #fff;
+  }
+  .login-caixa { width: 100%; max-width: 400px; text-align: center; }
+  .login-caixa .marca { justify-content: center; margin-bottom: 28px; }
+  .login-caixa .marca img { height: 40px; }
+  .login-caixa .marca-texto { font-size: 28px; }
+  .login-caixa h1 { font-size: 22px; margin: 0 0 8px; }
+  .login-caixa p { color: #B9CCE0; margin: 0 0 24px; }
+  #botao-google { display: flex; justify-content: center; min-height: 44px; }
+  .login-erro {
+    margin-top: 20px; background: #3A1420; border: 1px solid #8A2E45; color: #FFD3DC;
+    border-radius: var(--radius); padding: 12px 14px; font-size: 14px; text-align: left;
+  }
+  .login-ajuda { margin-top: 28px; font-size: 13px; color: #8FA7BF; }
+  .carregando { min-height: 60vh; display: grid; place-items: center; color: var(--muted); }
 </style>
 </head>
 <body>
+<section class="login" id="tela-login" hidden>
+  <div class="login-caixa">
+    <div class="marca">
+      <img src="assets/logo-usadosbr.png" alt="Usadosbr" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'marca-texto',innerHTML:'usados<span>br</span>'}))">
+      <span class="marca-sub">Materiais</span>
+    </div>
+    <h1>Entre para ver os vídeos</h1>
+    <p>Use a sua conta Google autorizada.</p>
+    <div id="botao-google"></div>
+    <div class="login-erro" id="login-erro" role="alert" hidden></div>
+    <p class="login-ajuda">Sem acesso? Peça a liberação do seu e-mail ao seu contato na Usadosbr.</p>
+  </div>
+</section>
+
+<div id="tela-app" hidden>
 <header class="topo">
   <a class="marca" href="#" aria-label="Materiais Usadosbr, início">
     <img src="assets/logo-usadosbr.png" alt="Usadosbr" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'marca-texto',innerHTML:'usados<span>br</span>'}))">
@@ -183,6 +228,10 @@
     <label for="q" class="sr-only">Buscar vídeos</label>
     <input id="q" type="search" placeholder="Buscar vídeos" autocomplete="off">
   </form>
+  <div class="usuario">
+    <span id="usuario-email"></span>
+    <button class="btn-sair" type="button" id="sair">Sair</button>
+  </div>
 </header>
 
 <nav class="filtros" aria-label="Filtrar por categoria" id="filtros">
@@ -192,11 +241,17 @@
 </nav>
 
 <main id="app" tabindex="-1"></main>
+</div>
 
-<script src="materiais.js"></script>
+<div class="carregando" id="tela-carregando" role="status">Carregando…</div>
+
+<script src="config.js"></script>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <script>
 (function () {
-  var VIDEOS = Array.isArray(window.MATERIAIS) ? window.MATERIAIS : [];
+  var CFG = window.CONFIG || {};
+  var TOKEN_KEY = 'materiais_token';
+  var VIDEOS = [];
   var app = document.getElementById('app');
   var q = document.getElementById('q');
   var filtros = document.getElementById('filtros');
@@ -285,7 +340,7 @@
           '<div><div class="nome">Usadosbr</div><div class="canal">' + esc(rotulos(v)) + ' · ' + esc(v.duracao) + '</div></div>' +
           '<div class="acoes"><button class="btn" type="button" id="copiar">Copiar link do vídeo</button><span class="aviso-copia" id="copiado" role="status"></span></div>' +
         '</div>' +
-        (v.interno ? '<div class="alerta" role="note"><strong>Uso interno: GP, GN e Corban do C6 Bank.</strong>Não envie às corretoras.</div>' : '') +
+        (v.interno ? '<div class="alerta" role="note"><strong>Uso interno da Usadosbr.</strong>Não envie às corretoras. Só contas @usadosbr.com veem este vídeo.</div>' : '') +
         '<div class="caixa"><p>' + esc(v.descricao) + '</p></div>' +
         ((v.passos && v.passos.length) ? '<section class="caixa" aria-labelledby="neste"><h2 id="neste">Neste vídeo</h2><ol class="passos">' +
           v.passos.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></section>' : '') +
@@ -337,8 +392,108 @@
     renderGrade();
   });
 
-  window.addEventListener('hashchange', rota);
-  rota();
+  window.addEventListener('hashchange', function () { if (VIDEOS.length) rota(); });
+
+  // ---------- Login ----------
+  var telas = {
+    login: document.getElementById('tela-login'),
+    app: document.getElementById('tela-app'),
+    carregando: document.getElementById('tela-carregando')
+  };
+  function mostrar(nome) {
+    Object.keys(telas).forEach(function (k) { telas[k].hidden = k !== nome; });
+  }
+
+  function erroLogin(html) {
+    var el = document.getElementById('login-erro');
+    el.innerHTML = html || '';
+    el.hidden = !html;
+  }
+
+  function tokenSalvo() {
+    try {
+      var t = sessionStorage.getItem(TOKEN_KEY);
+      if (!t) return null;
+      var exp = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp * 1000;
+      return exp - Date.now() > 60e3 ? t : null;
+    } catch (e) { return null; }
+  }
+  function esquecerToken() { try { sessionStorage.removeItem(TOKEN_KEY); } catch (e) {} }
+
+  var tentativas = 0;
+  function iniciarGoogle() {
+    if (!window.google || !google.accounts || !google.accounts.id) {
+      if (++tentativas > 80) { // ~12 s
+        mostrar('login');
+        erroLogin('O login do Google não carregou. Desative bloqueadores para este site e recarregue a página.');
+        return;
+      }
+      return setTimeout(iniciarGoogle, 150);
+    }
+    google.accounts.id.initialize({
+      client_id: CFG.GOOGLE_CLIENT_ID,
+      callback: function (r) {
+        try { sessionStorage.setItem(TOKEN_KEY, r.credential); } catch (e) {}
+        carregar(r.credential);
+      },
+      auto_select: true, ux_mode: 'popup', itp_support: true
+    });
+    google.accounts.id.renderButton(document.getElementById('botao-google'), {
+      theme: 'filled_black', size: 'large', shape: 'pill', text: 'signin_with', locale: 'pt-BR', width: 300
+    });
+    var t = tokenSalvo();
+    if (t) carregar(t); else { mostrar('login'); google.accounts.id.prompt(); }
+  }
+
+  function carregar(token) {
+    mostrar('carregando');
+    erroLogin('');
+    if (!CFG.APPS_SCRIPT_URL) {
+      mostrar('login');
+      erroLogin('O site ainda não está ligado ao servidor de vídeos.');
+      return;
+    }
+    fetch(CFG.APPS_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ acao: 'videos', token: token }) })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) {
+          esquecerToken();
+          mostrar('login');
+          if (d.erro === 'sem_acesso') {
+            erroLogin('A conta <b>' + esc(d.email) + '</b> não tem acesso a estes materiais. ' +
+              'Se você tem outra conta Google autorizada, entre com ela.');
+            if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+          } else if (d.erro === 'login_expirado') {
+            erroLogin('Sua sessão expirou. Entre de novo.');
+          } else {
+            erroLogin('Não foi possível entrar (' + esc(d.erro) + ').');
+          }
+          return;
+        }
+        iniciarApp(d.usuario, d.videos || []);
+      })
+      .catch(function () {
+        mostrar('login');
+        erroLogin('Não consegui falar com o servidor. Verifique a conexão e tente de novo.');
+      });
+  }
+
+  function iniciarApp(usuario, videos) {
+    VIDEOS = videos;
+    document.getElementById('usuario-email').textContent = usuario.email;
+    mostrar('app');
+    rota();
+  }
+
+  document.getElementById('sair').addEventListener('click', function () {
+    esquecerToken();
+    if (window.google && google.accounts) google.accounts.id.disableAutoSelect();
+    VIDEOS = [];
+    app.innerHTML = '';
+    mostrar('login');
+  });
+
+  iniciarGoogle();
 })();
 </script>
 </body>
